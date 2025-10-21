@@ -3,6 +3,9 @@ import {ApiError} from "../utils/ApiError.js"
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/Cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
+import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
+
 
 const generateAccessTokensAndRefreshTokens = async(userId) => {
     try {
@@ -13,7 +16,7 @@ const generateAccessTokensAndRefreshTokens = async(userId) => {
         user.refreshToken= refreshToken
         await user.save({ validateBeforeSave: false})
 
-        return {accessToken, refreshToken   }
+        return { accessToken, refreshToken }
     } catch (error) {
         throw new ApiError(500, "something went wrong while generating access and refresh tokens")
     }
@@ -31,14 +34,14 @@ const registerUser= asyncHandler (async (req,res) => {
     // return res
 
     const {fullname, username, email, password}= req.body;
-    // console.log("req.body: "+req.body);
-    // console.log("email: ", email);
+    console.log("req.body: "+req.body);
+    console.log("email: ", email);
 
     // if (fullname === "") {
     //     throw new ApiError(400, "fullname is required")
     // }                      used by beginners and is completely fine but can be optimised in advanced form as below
     
-    if ([fullname, email, username, password].some((field) => field?.trim ==="")) {
+    if ([fullname, email, username, password].some((field) => field?.trim() ==="")) {
         throw new ApiError(400, "All fields are required!!")
     } // checks for all fields if they are null
 
@@ -50,7 +53,7 @@ const registerUser= asyncHandler (async (req,res) => {
         throw new ApiError(409, "user with this username or email already exists!!")
     }
 
-    console.log(req.files)
+    //console.log(req.files)
 
     const avatarLocalPath = req.files?.avatar[0]?.path;
     // const coverImageLocalPath = req.files?.coverImage[0]?.path;
@@ -117,7 +120,7 @@ const loginUser= asyncHandler (async (req,res) => {
     const options = {
         httpOnly: true, 
         secure: true
-    }
+    } //nobody else can modify these cookies except the server
 
     return res 
     .status(200)
@@ -137,8 +140,8 @@ const logoutUser= asyncHandler (async (req,res) => {
     await User.findByIdAndUpdate(
         req.user._id,
         {
-            $set: {
-                refreshToken: undefined
+            $unset: {
+                refreshToken: 1 //removes field from document
             }
         },
         {
@@ -157,4 +160,42 @@ const logoutUser= asyncHandler (async (req,res) => {
      .json(new ApiResponse(200, {}, "User logged out successfully"))
 })
 
-export {registerUser, loginUser, logoutUser}
+const refreshAccessToken = asyncHandler (async (req, res) => {
+    const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
+
+    if(!incomingRefreshToken) {
+        throw new ApiError(401, "Unauthorized request")
+    }
+
+    try {
+        const decodedToken = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET)
+    
+        const user = await User.findById(decodedToken?._id)
+    
+        if(!user){
+            throw new ApiError(401, "Invalid Refresh Token")
+        }
+    
+        if(incomingRefreshToken !== user?.refreshToken){
+            throw new ApiError(401, "Refresh token is expired or not matching")
+        }
+    
+        const options = {
+            httpOnly: true,
+            secure: true
+        }
+    
+        const { accessToken, newRefreshToken } = await generateAccessTokensAndRefreshTokens(user._id)
+    
+        return res.status(200)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", newRefreshToken, options)
+        .json(
+            new ApiResponse(200, {accessToken, refreshToken: newRefreshToken}, "Access Token refreshed successfully")
+        )
+    } catch (error) {
+        throw new ApiError(401, error?.message || "Invalid Refresh Token")
+    }
+})
+
+export { registerUser, loginUser, logoutUser, refreshAccessToken }
