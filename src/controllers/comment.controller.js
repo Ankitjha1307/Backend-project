@@ -12,12 +12,39 @@ const getVideoComments = asyncHandler(async (req, res) => {
         throw new ApiError(404, "No video found!")
     }
 
-    if(!isValidObjectId(videoId)){
-        throw new ApiError(404, "Invalid Video ID")
+    const videoComments = await Comment.aggregate([
+        {
+            $match: {
+                video: new mongoose.Types.ObjectId(videoId)
+            }
+        },
+        {
+            $lookup: {
+                from: "users",
+                localField: "owner",
+                foreignField: "_id",
+                as: "ownerInfo"
+            }
+        },
+        {
+            $unwind: "$ownerInfo"
+        },
+        {
+            $project: {
+                content: 1,
+                "ownerInfo.username": 1,
+                "ownerInfo.avatar": 1
+            }
+        }
+    ]);
+
+    if(!videoComments){
+        throw new ApiError(404, "No comments found for this video")
     }
 
-    // comments projection
-
+    return res
+    .status(200)
+    .json(new ApiResponse(200, videoComments, "Video comments fetched successfully"))
 })
 
 const addComment = asyncHandler(async (req, res) => {

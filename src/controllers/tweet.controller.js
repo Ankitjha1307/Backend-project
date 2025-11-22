@@ -1,5 +1,6 @@
 import mongoose, {isValidObjectId} from "mongoose";
 import { Tweet } from "../models/tweet.model";
+import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -28,11 +29,34 @@ const getUserTweets = asyncHandler(async (req, res) => {
     throw new ApiError(401, "UserID required")
    }
 
-   if(!isValidObjectId(userId)){
-    throw new ApiError(401, "Invalid userID")
-   }
+   const tweets = await User.aggregate([
+    {
+        $match: {
+            _id: new mongoose.Types.ObjectId(userId)
+        }   
+    }, 
+    {
+        $lookup: {
+            from: "tweets",
+            localField: "_id",
+            foreignField: "owner",
+            as: "tweets"
+        }
+    },
+    {
+        $project: {
+            fullname: 1,
+            username: 1,
+            tweets: 1
+        }
+    }
+   ]);
 
-   //tweets projection
+   return res
+        .status(200)
+        .json(
+            new ApiResponse(200, tweets, "User tweets fetched successfully")
+        )
 })
 
 const updateTweet = asyncHandler(async (req, res) => {
